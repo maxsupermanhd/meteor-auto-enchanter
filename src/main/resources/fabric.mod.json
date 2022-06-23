@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "id": "addon-template",
+  "id": "auto-enchanter",
   "version": "${version}",
-  "name": "Addon Template",
-  "description": "An addon template for the Meteor addons.",
+  "name": "Auto Enchanter",
+  "description": "Automatic item combining on anvil",
   "authors": [
-    "seasnail8169"
+    "FlexCoral"
   ],
   "contact": {
-    "repo": "https://github.com/MeteorDevelopment/meteor-addon-template"
+    "repo": "https://github.com/maxsupermanhd/meteor-auto-enchanter"
   },
   "icon": "assets/template/icon.png",
   "environment": "client",
   "entrypoints": {
     "meteor": [
-      "dummy.addon.template.TemplateAddon"
+      "maxsuperman.addon.enchanter.EnchanterAddon"
     ]
   },
   "mixins": [
@@ -26,6 +26,6 @@
   "depends": {
     "java": ">=17",
     "minecraft": ">=${mc_version}",
-    "meteor-client": "*"
+    "meteor-client": ">0.4.5"
   }
 }
