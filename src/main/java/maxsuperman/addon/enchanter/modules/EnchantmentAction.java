@@ -20,7 +20,7 @@ public class EnchantmentAction implements ISerializable<EnchantmentAction> {
 
     public EnchantmentAction() {
         A = Items.BOOK;
-        Ae = new ArrayList<>(List.of(new EnchantmentWithLevel[]{new EnchantmentWithLevel(Enchantments.UNBREAKING, 3)}));
+        Ae = new ArrayList<>();
         B = Items.DIAMOND_SWORD;
         Be = new ArrayList<>();
     }

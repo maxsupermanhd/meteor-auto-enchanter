@@ -28,9 +28,10 @@ public class ProcessStepScreen extends WindowScreen {
     }
 
     public void fillTable(WTable table) {
-        table.add(theme.label("Item A:"));
-        table.add(theme.item(action.A.getDefaultStack()));
-        var acb = table.add(theme.button("Change")).widget();
+        var labelA = table.add(theme.horizontalList()).widget();
+        labelA.add(theme.label("Item A:"));
+        labelA.add(theme.item(action.A.getDefaultStack()));
+        var acb = labelA.add(theme.button("Change")).widget();
         acb.action = () -> {
             MeteorClient.mc.setScreen(new EnchantableSelectScreen(theme, (Item sel) -> {
                 action.A = sel;
@@ -40,14 +41,15 @@ public class ProcessStepScreen extends WindowScreen {
         };
         table.row();
 
+        var atable = table.add(theme.table()).widget();
         for (EnchantmentWithLevel e : action.Ae) {
-            var d = table.add(theme.button("D")).widget();
+            var d = atable.add(theme.button("D")).widget();
             d.action = () -> {
                 action.Ae.remove(e);
                 table.clear();
                 fillTable(table);
             };
-            var c = table.add(theme.button("C")).widget();
+            var c = atable.add(theme.button("C")).widget();
             c.action = () -> {
                 MeteorClient.mc.setScreen(new EnchantmentSelectScreen(theme, (Enchantment sel) -> {
                     e.enchantment = sel;
@@ -55,10 +57,11 @@ public class ProcessStepScreen extends WindowScreen {
                     fillTable(table);
                 }));
             };
-            table.add(theme.label(e.enchantment.toString()));
-            table.add(theme.intEdit(e.level, 1, e.enchantment.getMaxLevel(), true));
-            table.row();
+            atable.add(theme.label(Names.get(e.enchantment)));
+            atable.add(theme.intEdit(e.level, 1, e.enchantment.getMaxLevel(), true));
+            atable.row();
         }
+        table.row();
         var aa = table.add(theme.button("Add")).widget();
         aa.action = () -> {
             action.Ae.add(new EnchantmentWithLevel(Enchantments.UNBREAKING, 3));
@@ -68,9 +71,10 @@ public class ProcessStepScreen extends WindowScreen {
         table.row();
 
 
-        table.add(theme.label("Item B:"));
-        table.add(theme.item(action.B.getDefaultStack()));
-        var bcb = table.add(theme.button("Change")).widget();
+        var labelB = table.add(theme.horizontalList()).widget();
+        labelB.add(theme.label("Item B:"));
+        labelB.add(theme.item(action.B.getDefaultStack()));
+        var bcb = labelB.add(theme.button("Change")).widget();
         bcb.action = () -> {
             MeteorClient.mc.setScreen(new EnchantableSelectScreen(theme, (Item sel) -> {
                 action.B = sel;
@@ -80,14 +84,15 @@ public class ProcessStepScreen extends WindowScreen {
         };
         table.row();
 
+        var btable = table.add(theme.table()).widget();
         for (EnchantmentWithLevel e : action.Be) {
-            var d = table.add(theme.button("D")).widget();
+            var d = btable.add(theme.button("D")).widget();
             d.action = () -> {
                 action.Be.remove(e);
                 table.clear();
                 fillTable(table);
             };
-            var c = table.add(theme.button("C")).widget();
+            var c = btable.add(theme.button("C")).widget();
             c.action = () -> {
                 MeteorClient.mc.setScreen(new EnchantmentSelectScreen(theme, (Enchantment sel) -> {
                     e.enchantment = sel;
@@ -95,13 +100,15 @@ public class ProcessStepScreen extends WindowScreen {
                     fillTable(table);
                 }));
             };
-            table.add(theme.label(Names.get(e.enchantment)));
-            table.add(theme.intEdit(e.level, 1, e.enchantment.getMaxLevel(), true));
-            table.row();
+            btable.add(theme.label(Names.get(e.enchantment)));
+            btable.add(theme.intEdit(e.level, 1, e.enchantment.getMaxLevel(), true));
+            btable.row();
         }
+        table.row();
+
         var ba = table.add(theme.button("Add")).widget();
         ba.action = () -> {
-            action.Ae.add(new EnchantmentWithLevel(Enchantments.UNBREAKING, 3));
+            action.Be.add(new EnchantmentWithLevel(Enchantments.UNBREAKING, 3));
             table.clear();
             fillTable(table);
         };

@@ -26,6 +26,7 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.block.enums.ChestType;
 import net.minecraft.enchantment.Enchantment;
+import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.item.ItemStack;
@@ -78,15 +79,6 @@ public class AutoEnchant extends Module {
 
     public AutoEnchant() {
         super(Categories.Misc, "auto-enchanter", "Automatically enchants stuff for you.");
-        process.clear();
-        process.add(new EnchantmentAction(
-            Items.BOOK, List.of(new EnchantmentWithLevel[]{new EnchantmentWithLevel(Enchantments.UNBREAKING, 3)}),
-            Items.BOOK, List.of(new EnchantmentWithLevel[]{new EnchantmentWithLevel(Enchantments.MENDING, 1)})
-        ));
-        process.add(new EnchantmentAction(
-            Items.BOOK, List.of(new EnchantmentWithLevel[]{new EnchantmentWithLevel(Enchantments.UNBREAKING, 3), new EnchantmentWithLevel(Enchantments.MENDING, 1)}),
-            Items.ELYTRA, new ArrayList<>()
-        ));
     }
 
     public enum State {
@@ -169,7 +161,12 @@ public class AutoEnchant extends Module {
             table.add(bel);
             var edit = table.add(theme.button("E")).widget();
             edit.action = () -> {
-                mc.setScreen(new ProcessStepScreen(theme, action));
+                var s = new ProcessStepScreen(theme, action);
+                s.onClosed(() -> {
+                    list.clear();
+                    fillWidget(theme, list);
+                });
+                mc.setScreen(s);
             };
             var delete = table.add(theme.button("D")).widget();
             delete.action = () -> {
@@ -177,6 +174,7 @@ public class AutoEnchant extends Module {
                 list.clear();
                 fillWidget(theme, list);
             };
+
             table.row();
         }
         var addb = table.add(theme.button("Add")).widget();
@@ -194,10 +192,7 @@ public class AutoEnchant extends Module {
         }
         NbtCompound c = new NbtCompound();
         c.put("process", l);
-        if (!f.getParentFile().mkdirs()) {
-            error("Failed to create some directories!");
-            return false;
-        }
+        f.getParentFile().mkdirs();
         try {
             NbtIo.write(c, f);
         } catch (IOException e) {
