@@ -1,5 +1,6 @@
 package maxsuperman.addon.enchanter.modules;
 
+import maxsuperman.addon.enchanter.mixin.ScreenHandlerAccessor;
 import meteordevelopment.meteorclient.MeteorClient;
 import meteordevelopment.meteorclient.events.game.OpenScreenEvent;
 import meteordevelopment.meteorclient.events.packets.PacketEvent;
@@ -25,14 +26,21 @@ import net.minecraft.block.ChestBlock;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.block.enums.ChestType;
+import net.minecraft.client.gui.screen.ingame.AnvilScreen;
+import net.minecraft.client.gui.screen.ingame.GenericContainerScreen;
+import net.minecraft.client.gui.screen.ingame.ScreenHandlerProvider;
+import net.minecraft.client.gui.screen.ingame.ShulkerBoxScreen;
 import net.minecraft.enchantment.Enchantment;
 import net.minecraft.enchantment.EnchantmentHelper;
 import net.minecraft.enchantment.Enchantments;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.inventory.Inventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.*;
 import net.minecraft.network.packet.s2c.play.InventoryS2CPacket;
+import net.minecraft.screen.PlayerScreenHandler;
+import net.minecraft.screen.ScreenHandler;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.*;
@@ -51,13 +59,11 @@ public class AutoEnchant extends Module {
     private BlockPos lastIndexedPos = null;
     private String lastIndexedDimension = null;
     private Queue<IndexedBlock> toIndexPos = new ArrayDeque<>();
-    private List<IndexedBlock> cachedAnvils = new ArrayList<>();
-    private Map<String, List<ItemInABox>> cachedBooks = new TreeMap<>();
-    private Map<String, List<ItemInABox>> cachedItems = new TreeMap<>();
-
+    private List<IndexedBlock> cachedAnvils = new ArrayList<>(16);
+    private List<ItemInABox> cachedItems = new ArrayList<>(16);
     private List<EnchantmentAction> process = new ArrayList<>();
-
     private State state = State.Disabled;
+    private int lastInteraction = 0;
 
     private final Setting<Double> reachRange = sgGeneral.add(new DoubleSetting.Builder()
         .name("reach-distance")
@@ -76,6 +82,18 @@ public class AutoEnchant extends Module {
         .description("Select the storage blocks to consider.")
         .defaultValue(new BlockEntityType[]{BlockEntityType.CHEST, BlockEntityType.TRAPPED_CHEST, BlockEntityType.ENDER_CHEST, BlockEntityType.SHULKER_BOX, BlockEntityType.BARREL})
         .build());
+    private final Setting<Integer> interactionDelay = sgGeneral.add(new IntSetting.Builder()
+        .name("interaction-delay")
+        .description("How much to wait before sending next interaction (milliseconds)")
+        .defaultValue(250)
+        .min(0)
+        .sliderRange(0, 1000)
+        .build());
+    private final Setting<Mode> opMode = sgGeneral.add(new EnumSetting.Builder<Mode>()
+        .name("mode")
+        .description("How enchanting will be performed")
+        .defaultValue(Mode.SingleDumb)
+        .build());
 
     public AutoEnchant() {
         super(Categories.Misc, "auto-enchanter", "Automatically enchants stuff for you.");
@@ -87,6 +105,9 @@ public class AutoEnchant extends Module {
         IndexingWaitingForScreen,
         IndexingWaitingForContents,
         Planning,
+    }
+    public enum Mode {
+        SingleDumb
     }
 
     @Override
@@ -248,52 +269,121 @@ public class AutoEnchant extends Module {
         state = State.Disabled;
         super.onDeactivate();
     }
+    private IndexedBlock interactedBlock = null;
     @EventHandler
     private void onScreenOpen(OpenScreenEvent event) {
-        info("Opened screen: " + event.screen.toString());
-//        if (event.screen instanceof ShulkerBoxScreen) {
-//            toggle();
-//        } else if (event.screen instanceof AnvilScreen) {
-//
-//        } else if (event.screen instanceof GenericContainerScreen) {
-//
-//        }
+        if (mc.player == null) {return;}
+        if (event.screen == null) {return;}
+        info("Opened screen: " + event.screen.getClass().getName());
+        if (!(event.screen instanceof ShulkerBoxScreen) && !(event.screen instanceof GenericContainerScreen)) {return;}
+        var screen = event.screen;
+        ScreenHandler container = ((ScreenHandlerProvider<?>)screen).getScreenHandler();
+        state = State.IndexingWaitingForContents;
+        mc.player.currentScreenHandler = new ScreenHandler(((ScreenHandlerAccessor) container).getNullableType(), container.syncId) {
+            @Override
+            public boolean canUse(PlayerEntity var1) {
+                return true;
+            }
+            @Override
+            public ItemStack transferSlot(PlayerEntity player, int index) {
+                return ItemStack.EMPTY;
+            }
+            @Override
+            public void updateSlotStacks(int revision, List<ItemStack> stacks, ItemStack cursorStack) {
+                info("Got {} slots revision {}", stacks.size(), revision);
+                if (mc.player == null) {
+                    error("Player is null!");
+                    return;
+                }
+                try {
+                    if(state != State.IndexingWaitingForContents) {throw new Exception("??? got screen without waiting for contents");}
+                    if(interactedBlock == null) {throw new Exception("??? interacted block in null");}
+                    for (int slot = 0; slot < stacks.size(); slot++) {
+                        ItemStack stack = stacks.get(slot);
+                        if(stack.isEmpty()) {continue;}
+                        for (EnchantmentAction p : process) {
+                            boolean found;
+                            if(stack.isOf(p.A)) {
+                                found = checkMatchingEnchantments(p.Ae, stack);
+                            } else if(stack.isOf(p.B)) {
+                                found = checkMatchingEnchantments(p.Be, stack);
+                            } else {
+                                continue;
+                            }
+                            if(found) {
+                                info("Found {} in {} at {}", stack.getName().getString(), interactedBlock.pos, slot);
+                                cachedItems.add(new ItemInABox(interactedBlock, stack, slot));
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    error(e.getMessage());
+                }
+                mc.player.closeHandledScreen();
+                state = State.Indexing;
+            }
+        };
     }
-
-
-    @EventHandler(priority = EventPriority.HIGH)
-    private void onReceivePacket(PacketEvent.Receive event) {
-        if (!(event.packet instanceof InventoryS2CPacket)) return;
-        if (state == State.IndexingWaitingForScreen) {
-
+    private boolean checkMatchingEnchantments(List<EnchantmentWithLevel> req, ItemStack stack) {
+        var e = EnchantmentHelper.get(stack);
+        if(e.size() != req.size()) {
+            return false;
         }
+        boolean matches = true;
+        for (EnchantmentWithLevel c : req) {
+            var cc = e.get(c.enchantment);
+            if(cc == null || c.level != cc) {
+                matches = false;
+            }
+        }
+        return matches;
     }
-
     @EventHandler
     private void onTick(TickEvent.Pre event) {
         if (state == State.Indexing) {
-            var t = toIndexPos.poll();
+            var t = toIndexPos.peek();
             if (t == null) {
                 state = State.Planning;
                 return;
             }
             if (mc.player == null) {
                 error("player is null");
+                state = State.Disabled;
                 return;
             }
             if (mc.world == null) {
                 error("player is null");
+                state = State.Disabled;
                 return;
             }
             Vec3d epos = mc.player.getEyePos();
             if (mc.interactionManager == null) {
                 error("interaction manager is null");
+                state = State.Disabled;
                 return;
             }
-            mc.interactionManager.interactBlock(mc.player, mc.world, Hand.MAIN_HAND, new BlockHitResult(t.hit,
-                Direction.getFacing((float) (t.hit.x - epos.x), (float) (t.hit.y - epos.y), (float) (t.hit.z - epos.z)),
-                t.pos, false));
-            state = State.IndexingWaitingForScreen;
+            if (mc.currentScreen == null) {
+                state = State.IndexingWaitingForScreen;
+                interactedBlock = t;
+                mc.interactionManager.interactBlock(mc.player, mc.world, Hand.MAIN_HAND, new BlockHitResult(t.hit,
+                    Direction.getFacing((float) (t.hit.x - epos.x), (float) (t.hit.y - epos.y), (float) (t.hit.z - epos.z)),
+                    t.pos, false));
+            }
+            toIndexPos.remove();
+        } else if(state == State.Planning) {
+            if(cachedAnvils.size() == 0) {
+                error("No anvils around?");
+                state = State.Disabled;
+                return;
+            }
+            var m = opMode.get();
+            switch (m) {
+                case SingleDumb -> {
+
+                }
+                default -> error("Not implemented enchanting mode");
+            }
         }
     }
 
@@ -339,14 +429,12 @@ public class AutoEnchant extends Module {
     public boolean isStorageContainer(BlockEntity b) {
         return storageBlocks.get().contains(b.getType());
     }
-
     @EventHandler
     private void onRender(Render3DEvent event) {
         for (IndexedBlock p : toIndexPos) {
             event.renderer.blockLines(p.pos.getX(), p.pos.getY(), p.pos.getZ(), Color.GREEN, 0);
         }
     }
-
     public double getReachRange() {
         double r = reachRange.get();
         if (r == 0.0) {
@@ -354,13 +442,10 @@ public class AutoEnchant extends Module {
                 r = mc.interactionManager.getReachDistance();
             } else {
                 error("Reach distance is set to 0 and interaction manager is null, defaulting to 4.5");
-
             }
         }
-        return reachRange.get();
+        return r;
     }
-
-    // ty earthcomputer <3
     public Vec3d getClosestPoint(BlockPos blockPos, VoxelShape voxel, Vec3d pos, Direction dir) {
         ClosestPosResult result = new ClosestPosResult();
         Direction[] dirs = dir == null ? Direction.values() : new Direction[] {dir};
@@ -388,7 +473,7 @@ public class AutoEnchant extends Module {
         });
         return result.val;
     }
-    public class ClosestPosResult {
+    public static class ClosestPosResult {
         Vec3d val;
         double distanceSq = Double.POSITIVE_INFINITY;
     }
@@ -420,6 +505,11 @@ public class AutoEnchant extends Module {
         public IndexedBlock container;
         public ItemStack item;
         public int slot;
-    }
 
+        public ItemInABox(IndexedBlock container, ItemStack item, int slot) {
+            this.container = container;
+            this.item = item;
+            this.slot = slot;
+        }
+    }
 }
